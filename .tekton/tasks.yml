@@ -34,31 +34,32 @@ metadata:
 spec:
   workspaces:
     - name: source
+
   params:
-    - name: args
-      description: Arguments to pass to ESLint
-      type: string
-      default: "src/ tests/ --ext *.js"
     - name: path
-      description: Directory (relative to workspace) that contains package.json
+      description: Directory that contains package.json for eslint
       type: string
-      default: "."
+      default: "service"
+    - name: args
+      description: Extra args passed to npm run lint (optional)
+      type: string
+      default: ""
+
   steps:
     - name: lint
       image: node:20-alpine
-      workingDir: $(workspaces.source.path)
+      workingDir: $(workspaces.source.path)/$(params.path)
       script: |
         #!/bin/sh
-        set -e
+        set -eu
 
+        echo "Working dir: $(pwd)"
         echo "Node: $(node -v)"
         echo "NPM:  $(npm -v)"
 
-        cd "$(workspaces.source.path)/$(params.path)"
-
         if [ ! -f package.json ]; then
-          echo "ERROR: package.json not found in: $(pwd)"
-          echo "TIP: If your package.json is in a subfolder (e.g. service/), set param path=service in the Pipeline task."
+          echo "ERROR: package.json not found in $(pwd)"
+          echo "TIP: set param 'path' to the folder that contains package.json"
           exit 1
         fi
 
@@ -70,7 +71,11 @@ spec:
         fi
 
         echo "Running ESLint..."
-        npm run lint -- $(params.args)
+        if [ -n "$(params.args)" ]; then
+          npm run lint -- $(params.args)
+        else
+          npm run lint
+        fi
 
 ---
 apiVersion: tekton.dev/v1beta1
@@ -80,31 +85,32 @@ metadata:
 spec:
   workspaces:
     - name: source
+
   params:
+    - name: path
+      description: Directory that contains package.json for jest
+      type: string
+      default: "service"
     - name: args
-      description: Arguments to pass to jest
+      description: Extra args passed to npm test (optional)
       type: string
       default: "-v"
-    - name: path
-      description: Directory (relative to workspace) that contains package.json
-      type: string
-      default: "."
+
   steps:
-    - name: jest
+    - name: test
       image: node:20-alpine
-      workingDir: $(workspaces.source.path)
+      workingDir: $(workspaces.source.path)/$(params.path)
       script: |
         #!/bin/sh
-        set -e
+        set -eu
 
+        echo "Working dir: $(pwd)"
         echo "Node: $(node -v)"
         echo "NPM:  $(npm -v)"
 
-        cd "$(workspaces.source.path)/$(params.path)"
-
         if [ ! -f package.json ]; then
-          echo "ERROR: package.json not found in: $(pwd)"
-          echo "TIP: If your package.json is in a subfolder (e.g. service/), set param path=service in the Pipeline task."
+          echo "ERROR: package.json not found in $(pwd)"
+          echo "TIP: set param 'path' to the folder that contains package.json"
           exit 1
         fi
 
@@ -116,4 +122,8 @@ spec:
         fi
 
         echo "Running Jest..."
-        npm test -- $(params.args)
+        if [ -n "$(params.args)" ]; then
+          npm test -- $(params.args)
+        else
+          npm test
+        fi
