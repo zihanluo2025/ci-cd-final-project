@@ -1,4 +1,3 @@
----
 apiVersion: tekton.dev/v1beta1
 kind: Task
 metadata:
@@ -9,35 +8,23 @@ spec:
   steps:
     - name: remove
       image: alpine:3
+      env:
+        - name: WORKSPACE_SOURCE_PATH
+          value: $(workspaces.source.path)
       workingDir: $(workspaces.source.path)
       securityContext:
+        runAsNonRoot: false
         runAsUser: 0
       script: |
-        #!/bin/sh
+        #!/usr/bin/env sh
         set -eu
-        rm -rf $(workspaces.source.path)/*
 
----
-apiVersion: tekton.dev/v1beta1
-kind: Task
-metadata:
-  name: nose
-spec:
-  workspaces:
-    - name: source
-  params:
-    - name: args
-      type: string
-      default: "-v"
-  steps:
-    - name: nosetests
-      image: python:3.9-slim
-      workingDir: $(workspaces.source.path)
-      script: |
-        #!/bin/bash
-        set -e
-        pip install -r requirements.txt
-        nosetests $(params.args)
+        echo "Removing all files from ${WORKSPACE_SOURCE_PATH} ..."
+        if [ -d "${WORKSPACE_SOURCE_PATH}" ] ; then
+          rm -rf "${WORKSPACE_SOURCE_PATH:?}"/*
+          rm -rf "${WORKSPACE_SOURCE_PATH}"/.[!.]*
+          rm -rf "${WORKSPACE_SOURCE_PATH}"/..?*
+        fi
 
 ---
 apiVersion: tekton.dev/v1beta1
@@ -49,17 +36,41 @@ spec:
     - name: source
   params:
     - name: args
+      description: Arguments to pass to ESLint
+      type: string
+      default: "src/ tests/ --ext *.js"
+    - name: path
+      description: Directory (relative to workspace) that contains package.json
       type: string
       default: "."
   steps:
-    - name: run-eslint
+    - name: lint
       image: node:20-alpine
       workingDir: $(workspaces.source.path)
       script: |
         #!/bin/sh
-        set -eu
-        npm install
-        npx eslint $(params.args)
+        set -e
+
+        echo "Node: $(node -v)"
+        echo "NPM:  $(npm -v)"
+
+        cd "$(workspaces.source.path)/$(params.path)"
+
+        if [ ! -f package.json ]; then
+          echo "ERROR: package.json not found in: $(pwd)"
+          echo "TIP: If your package.json is in a subfolder (e.g. service/), set param path=service in the Pipeline task."
+          exit 1
+        fi
+
+        echo "Installing dependencies..."
+        if [ -f package-lock.json ]; then
+          npm ci
+        else
+          npm install
+        fi
+
+        echo "Running ESLint..."
+        npm run lint -- $(params.args)
 
 ---
 apiVersion: tekton.dev/v1beta1
@@ -71,18 +82,38 @@ spec:
     - name: source
   params:
     - name: args
+      description: Arguments to pass to jest
       type: string
-      default: ""
+      default: "-v"
+    - name: path
+      description: Directory (relative to workspace) that contains package.json
+      type: string
+      default: "."
   steps:
-    - name: run-jest
+    - name: jest
       image: node:20-alpine
       workingDir: $(workspaces.source.path)
       script: |
         #!/bin/sh
-        set -eu
-        npm install
-        if [ -z "$(params.args)" ]; then
-          npx jest
-        else
-          npx jest $(params.args)
+        set -e
+
+        echo "Node: $(node -v)"
+        echo "NPM:  $(npm -v)"
+
+        cd "$(workspaces.source.path)/$(params.path)"
+
+        if [ ! -f package.json ]; then
+          echo "ERROR: package.json not found in: $(pwd)"
+          echo "TIP: If your package.json is in a subfolder (e.g. service/), set param path=service in the Pipeline task."
+          exit 1
         fi
+
+        echo "Installing dependencies..."
+        if [ -f package-lock.json ]; then
+          npm ci
+        else
+          npm install
+        fi
+
+        echo "Running Jest..."
+        npm test -- $(params.args)
