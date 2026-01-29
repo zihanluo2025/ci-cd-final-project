@@ -1,3 +1,4 @@
+---
 apiVersion: tekton.dev/v1beta1
 kind: Task
 metadata:
@@ -59,3 +60,87 @@ spec:
         python -m pip install --upgrade pip wheel
         pip install -r requirements.txt
         nosetests $(params.args)
+
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: eslint
+spec:
+  description: Run eslint on a Node.js project.
+  workspaces:
+    - name: source
+  params:
+    - name: node-image
+      type: string
+      default: node:20-alpine
+    - name: path
+      type: string
+      default: .
+    - name: args
+      type: array
+      default:
+        - .
+  steps:
+    - name: install-and-run
+      image: $(params.node-image)
+      workingDir: $(workspaces.source.path)/$(params.path)
+      script: |
+        #!/bin/sh
+        set -eu
+        node -v
+        npm -v
+
+        if [ -f package-lock.json ]; then
+          npm ci
+        else
+          npm install
+        fi
+
+        # Ensure eslint exists
+        if ! npx --yes eslint -v >/dev/null 2>&1; then
+          npm install --no-save eslint
+        fi
+
+        npx eslint $(params.args[*])
+
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: jest-test
+spec:
+  description: Run Jest tests for a Node.js project.
+  workspaces:
+    - name: source
+  params:
+    - name: node-image
+      type: string
+      default: node:20-alpine
+    - name: path
+      type: string
+      default: .
+    - name: args
+      type: array
+      default: []
+  steps:
+    - name: install-and-test
+      image: $(params.node-image)
+      workingDir: $(workspaces.source.path)/$(params.path)
+      script: |
+        #!/bin/sh
+        set -eu
+        node -v
+        npm -v
+
+        if [ -f package-lock.json ]; then
+          npm ci
+        else
+          npm install
+        fi
+
+        if [ "${#params.args[*]}" -eq 0 ]; then
+          npx jest
+        else
+          npx jest $(params.args[*])
+        fi
