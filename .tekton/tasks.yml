@@ -3,6 +3,7 @@ kind: Task
 metadata:
   name: cleanup
 spec:
+  description: Clean up workspace contents.
   workspaces:
     - name: source
   steps:
@@ -30,52 +31,60 @@ spec:
 apiVersion: tekton.dev/v1beta1
 kind: Task
 metadata:
-  name: eslint
+  name: flake8
 spec:
+  description: Lint a Python project using flake8.
   workspaces:
     - name: source
-
   params:
-    - name: path
-      description: Directory that contains package.json for eslint
-      type: string
-      default: "service"
     - name: args
-      description: Extra args passed to npm run lint (optional)
+      description: Arguments to pass to flake8
       type: string
-      default: ""
-
+      default: "."
   steps:
     - name: lint
-      image: node:20-alpine
-      workingDir: $(workspaces.source.path)/$(params.path)
+      image: python:3.11-slim
+      workingDir: $(workspaces.source.path)
       script: |
-        #!/bin/sh
-        set -eu
+        #!/bin/bash
+        set -e
 
-        echo "Working dir: $(pwd)"
-        echo "Node: $(node -v)"
-        echo "NPM:  $(npm -v)"
-
-        if [ ! -f package.json ]; then
-          echo "ERROR: package.json not found in $(pwd)"
-          echo "TIP: set param 'path' to the folder that contains package.json"
-          exit 1
+        python -m pip install --upgrade pip wheel
+        if [ -f requirements.txt ]; then
+          pip install -r requirements.txt
         fi
 
-        echo "Installing dependencies..."
-        if [ -f package-lock.json ]; then
-          npm ci
-        else
-          npm install
-        fi
+        pip install flake8
+        echo "Running flake8..."
+        flake8 $(params.args)
 
-        echo "Running ESLint..."
-        if [ -n "$(params.args)" ]; then
-          npm run lint -- $(params.args)
-        else
-          npm run lint
-        fi
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: nose
+spec:
+  description: Run Python unit tests using nose.
+  workspaces:
+    - name: source
+  params:
+    - name: args
+      description: Arguments to pass to nosetests
+      type: string
+      default: "-v"
+  steps:
+    - name: test
+      image: python:3.11-slim
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/bin/bash
+        set -e
+
+        python -m pip install --upgrade pip wheel
+        pip install -r requirements.txt
+        pip install nose
+        echo "Running nosetests..."
+        nosetests $(params.args)
 
 ---
 apiVersion: tekton.dev/v1beta1
@@ -83,47 +92,27 @@ kind: Task
 metadata:
   name: jest-test
 spec:
+  description: (Python version) Keep task name as 'jest-test' for the pipeline, but run Python tests.
   workspaces:
     - name: source
-
   params:
-    - name: path
-      description: Directory that contains package.json for jest
-      type: string
-      default: "service"
     - name: args
-      description: Extra args passed to npm test (optional)
+      description: Arguments to pass to tests
       type: string
       default: "-v"
-
   steps:
     - name: test
-      image: node:20-alpine
-      workingDir: $(workspaces.source.path)/$(params.path)
+      image: python:3.11-slim
+      workingDir: $(workspaces.source.path)
       script: |
-        #!/bin/sh
-        set -eu
+        #!/bin/bash
+        set -e
 
-        echo "Working dir: $(pwd)"
-        echo "Node: $(node -v)"
-        echo "NPM:  $(npm -v)"
+        python -m pip install --upgrade pip wheel
+        pip install -r requirements.txt
 
-        if [ ! -f package.json ]; then
-          echo "ERROR: package.json not found in $(pwd)"
-          echo "TIP: set param 'path' to the folder that contains package.json"
-          exit 1
-        fi
+        # Prefer nose if present in project, otherwise install
+        pip install nose
 
-        echo "Installing dependencies..."
-        if [ -f package-lock.json ]; then
-          npm ci
-        else
-          npm install
-        fi
-
-        echo "Running Jest..."
-        if [ -n "$(params.args)" ]; then
-          npm test -- $(params.args)
-        else
-          npm test
-        fi
+        echo "Running tests (task name: jest-test)..."
+        nosetests $(params.args)
